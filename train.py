@@ -31,7 +31,7 @@ if __name__=="__main__":
 
     opt = AdamW(model.parameters(),lr=1e-04,weight_decay=0.01)
 
-    writer = SummaryWriter(logdir = f"./tensorboard_logs/train_nystrom")
+    writer = SummaryWriter(logdir = f"./tensorboard_logs/train_cross")
 
     itr = 0
     for e in range(EPOCHS):
@@ -54,7 +54,7 @@ if __name__=="__main__":
             wifiIDX = [x.cuda() for x in d["wifiIDX"]]
             beacIDX = [x.cuda() for x in d["beacIDX"]]
 
-            B = imuData.shape[0]
+            B,T,_ = imuData.shape
             locPred,floorPred = model(  buildingIDs = buildingID,\
                                         wifiIDX = wifiIDX,\
                                         beacIDX = beacIDX,\
@@ -63,7 +63,8 @@ if __name__=="__main__":
                                         imuData = imuData,\
                                         len_mask = timeLen)
             
-            y_oh = F.one_hot(floorID,n_floors)
+            floorPred = floorPred.flatten(0,1)
+            y_oh = F.one_hot(floorID,n_floors).unsqueeze(1).repeat(1,T,1).flatten(0,1)
             floorLoss = sigmoid_focal_loss(floorPred,y_oh.float()).mean()
 
             locLoss = torch.square(locPred-target).mean()
@@ -77,9 +78,10 @@ if __name__=="__main__":
             
             with torch.no_grad():
                 floorClss = floorPred.sigmoid().argmax(-1)
-                equals = (floorClss==floorID).reshape(-1,1).detach().cpu()
-                training_acc += torch.sum(equals.type(torch.FloatTensor)).item()
-                floorDiff = torch.abs(floorClss-floorID).float()
+                floorID_ = floorID.unsqueeze(1).repeat(1,T).flatten()
+                equals = (floorClss==floorID_).reshape(-1,1).detach().cpu()
+                training_acc += torch.sum(equals.type(torch.FloatTensor)).item()/T
+                floorDiff = torch.abs(floorClss-floorID_).float()
                 kaggle_score += B*((locPred-target).norm(dim=-1).mean()+ 15*(floorDiff).mean()).item()
                 training_loss += B * loss.item()
                 training_samples += B
@@ -120,7 +122,7 @@ if __name__=="__main__":
             beacIDX = [x.cuda() for x in d["beacIDX"]]
 
             with torch.no_grad():
-                B = imuData.shape[0]
+                B,T,_ = imuData.shape
                 locPred,floorPred = model(  buildingIDs = buildingID,\
                                             wifiIDX = wifiIDX,\
                                             beacIDX = beacIDX,\
@@ -128,8 +130,8 @@ if __name__=="__main__":
                                             beacData = beacData,\
                                             imuData = imuData,\
                                             len_mask = timeLen)
-                
-                y_oh = F.one_hot(floorID,n_floors)
+                floorPred = floorPred.flatten(0,1)
+                y_oh = F.one_hot(floorID,n_floors).unsqueeze(1).repeat(1,T,1).flatten(0,1)
                 floorLoss = sigmoid_focal_loss(floorPred,y_oh.float()).mean()
 
                 locLoss = torch.square(locPred-target).mean()
@@ -138,9 +140,10 @@ if __name__=="__main__":
 
                 
                 floorClss = floorPred.sigmoid().argmax(-1)
-                equals = (floorClss==floorID).reshape(-1,1).detach().cpu()
-                val_acc += torch.sum(equals.type(torch.FloatTensor)).item()
-                floorDiff = torch.abs(floorClss-floorID).float()
+                floorID_ = floorID.unsqueeze(1).repeat(1,T).flatten()
+                equals = (floorClss==floorID_).reshape(-1,1).detach().cpu()
+                val_acc += torch.sum(equals.type(torch.FloatTensor)).item()/T
+                floorDiff = torch.abs(floorClss-floorID_).float()
                 kaggle_score += B*((locPred-target).norm(dim=-1).mean()+ 15*(floorDiff).mean()).item()
                 val_loss += B * loss.item()
                 val_samples += B
@@ -154,4 +157,4 @@ if __name__=="__main__":
         writer.add_scalar("val/acc_e", val_acc, itr)   
     
         model_dict = {"params":model.state_dict(),"itr":itr,"epoch":e}
-        torch.save(model_dict,"./weights/nystrom_model.pth")
+        torch.save(model_dict,"./weights/cross_model.pth")
