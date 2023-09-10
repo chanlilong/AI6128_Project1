@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from joblib import load
 
 EPOCHS = 30
-N_BATCH = 16
+N_BATCH = 20
 
 if __name__=="__main__":
     
@@ -104,6 +104,7 @@ if __name__=="__main__":
         val_loss = 0
         val_acc = 0
         val_samples = 0
+        kaggle_score = 0
         ys = []
         preds = []
         model.eval()
@@ -138,7 +139,7 @@ if __name__=="__main__":
                 
                 floorClss = floorPred.sigmoid().argmax(-1)
                 equals = (floorClss==floorID).reshape(-1,1).detach().cpu()
-                training_acc += torch.sum(equals.type(torch.FloatTensor)).item()
+                val_acc += torch.sum(equals.type(torch.FloatTensor)).item()
                 floorDiff = torch.abs(floorClss-floorID).float()
                 kaggle_score += B*((locPred-target).norm(dim=-1).mean()+ 15*(floorDiff).mean()).item()
                 val_loss += B * loss.item()
