@@ -94,7 +94,7 @@ class IndoorLocDataset(Dataset):
             return b
         else:
             ret = np.zeros((acce_datas.shape[0],b.shape[1]),dtype=np.float32)
-            interp = interp1d(b[:,0],b[:,1:],axis=0,fill_value="extrapolate")
+            interp = interp1d(b[:,0],b[:,1:],axis=0,fill_value="extrapolate",kind="nearest")
             ret[:,1:] = interp(acce_datas[:,0])
             ret[:,0] = acce_datas[:,0]
             
@@ -142,8 +142,10 @@ class IndoorLocDataset(Dataset):
         posi_datas = path_datas.waypoint
         
         gyro_datas,magn_datas,ahrs_datas = [self.interpolate(acce_datas,x) for x in [gyro_datas,magn_datas,ahrs_datas]]
-        IMU_data = np.concatenate([acce_datas,gyro_datas[:,1:],magn_datas[:,1:],ahrs_datas[:,1:]],axis=1).astype(np.float32)
-        
+        IMU_data = np.concatenate([acce_datas,gyro_datas[:,1:],magn_datas[:,1:],ahrs_datas[:,1:]],axis=1)
+        minT,maxT = posi_datas[:,0].min(),posi_datas[:,0].max()
+        fTime = (acce_datas[:,0]<=maxT) & (acce_datas[:,0]>=minT)
+        IMU_data = IMU_data[fTime]
 
         buildingID,floor = path.parent.parent.stem,path.parent.stem
         flooridx = self.floor2int[floor]
@@ -151,7 +153,7 @@ class IndoorLocDataset(Dataset):
         
         Cx,Cy,Xmax,Ymax,Xmin,Ymin = self.buildingStats.loc[buildingID,floor].values
 
-        interp = interp1d(posi_datas[:,0],posi_datas[:,1:],axis=0,fill_value="extrapolate")
+        interp = interp1d(posi_datas[:,0],posi_datas[:,1:],axis=0,fill_value="extrapolate",kind="linear")
         posInterp = interp(IMU_data[:,0])
         posInterp[:,0] = (posInterp[:,0]-Cx)/(Xmax-Xmin+1e-05)
         posInterp[:,1] = (posInterp[:,1]-Cy)/(Ymax-Ymin+1e-05)
@@ -167,8 +169,7 @@ class IndoorLocDataset(Dataset):
             wifiDF["RSSI"]= wifiDF["RSSI"].astype(np.float32).fillna(-110)
             wifiTime = wifiDF.pivot_table(values="RSSI",columns="time",index="BSSID").fillna(-110).T
             xInterp = wifiTime.index.values.astype(np.float32)
-            # if len(xInterp)>2:
-            # minT,maxT = xInterp.min(),xInterp.max()
+
             interp = interp1d(xInterp,wifiTime.values,axis=0,fill_value="extrapolate",kind="nearest")#,kind="nearest")
             wifiData_ = interp(IMU_data[:,0])
             wifiBSSID = wifiTime.columns.values
@@ -180,11 +181,7 @@ class IndoorLocDataset(Dataset):
             wifiIDX = np.array([wifi2int[x] if x in wifi2int.keys() else 0 for x in wifiBSSID ])
             wifiData = np.ones((IMU_data.shape[0],n_wifi),dtype=np.float32)*-110
             wifiData[:,wifiIDX] = self.nanFilter(wifiData_)
-            # else:
-            #     wifi2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].BSSID)}
-            #     n_wifi = len(wifi2int)
-            #     wifiData = np.ones((IMU_data.shape[0],n_wifi),dtype=np.float32)*-110
-            #     wifiIDX = np.array([0],dtype=np.int64) 
+
             
         else:
             wifi2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].BSSID)}
@@ -213,11 +210,7 @@ class IndoorLocDataset(Dataset):
             beacIDX = np.array([beac2int[x] for x in ibeaconUUID])
             ibeaconData = np.ones((IMU_data.shape[0],n_beac),dtype=np.float32)*-110
             ibeaconData[:,beacIDX] = self.nanFilter(ibeaconData_[:,validIDX])
-            # else:
-            #     beac2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].UUID)}
-            #     n_beac = len(beac2int)
-            #     ibeaconData = np.ones((IMU_data.shape[0],n_beac),dtype=np.float32)*-110
-            #     beacIDX = np.array([0],dtype=np.int64)
+
         else:
             beac2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].UUID)}
             n_beac = len(beac2int)
@@ -226,8 +219,10 @@ class IndoorLocDataset(Dataset):
                 
         # print(self.normIMU(IMU_data[:,1:]))
         return {"buildingID":buildingID,\
+                # "acceData":acce_datas,\
+                # "originalXY":posi_datas,\
                 "floor":flooridx,\
-                "imuData":self.nanFilter(self.normIMU(IMU_data[:,1:])),\
+                "imuData":self.nanFilter(self.normIMU(IMU_data[:,1:].astype(np.float32))),\
                 "target":self.nanFilter(posInterp),\
                 "wifiData":wifiData,\
                 "beacData":ibeaconData,\
@@ -235,7 +230,7 @@ class IndoorLocDataset(Dataset):
                 "beacIDX":beacIDX}
     
 
-def collate_fn(batch : List[dict], maxlen :int = 4096):
+def collate_fn(batch : List[dict], maxlen :int = 4096*2):
     '''
     Collates batch from pytorch dataloader into tensor batches with a maximum temporal dimension
     This function also normlize RSSI values from wifi and ibeacon by dividing them by -110.

@@ -34,7 +34,7 @@ if __name__=="__main__":
     writer = SummaryWriter(logdir = f"./tensorboard_logs/train_cross")
 
     itr = 0
-    for e in range(EPOCHS):
+    for e in tqdm(range(EPOCHS)):
 
         #=================[TRAINING CODE]============================#
         training_loss = 0
@@ -43,7 +43,7 @@ if __name__=="__main__":
         kaggle_score = 0
         model.train()
 
-        for d in tqdm(train_dataloader):
+        for d in train_dataloader:
             buildingID = d["buildingID"]
             timeLen = d["timeLen"].cuda()
             imuData = d["imuData"].cuda()
