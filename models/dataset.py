@@ -152,7 +152,6 @@ class IndoorLocDataset(Dataset):
         # buildingidx = self.build2int[buildingID]
         
         Cx,Cy,Xmax,Ymax,Xmin,Ymin = self.buildingStats.loc[buildingID,floor].values
-
         interp = interp1d(posi_datas[:,0],posi_datas[:,1:],axis=0,fill_value="extrapolate",kind="linear")
         posInterp = interp(IMU_data[:,0])
         posInterp[:,0] = (posInterp[:,0]-Cx)/(Xmax-Xmin+1e-05)
@@ -168,7 +167,7 @@ class IndoorLocDataset(Dataset):
             wifiDF["time"]= wifiDF["time"].astype(np.int64)
             wifiDF["RSSI"]= wifiDF["RSSI"].astype(np.float32).fillna(-110)
             wifiTime = wifiDF.pivot_table(values="RSSI",columns="time",index="BSSID").fillna(-110).T
-            xInterp = wifiTime.index.values.astype(np.float32)
+            xInterp = wifiTime.index.values.astype(np.float64)
 
             interp = interp1d(xInterp,wifiTime.values,axis=0,fill_value="extrapolate",kind="nearest")#,kind="nearest")
             wifiData_ = interp(IMU_data[:,0])
@@ -196,7 +195,7 @@ class IndoorLocDataset(Dataset):
             ibeaconDF["time"]= ibeaconDF["time"].astype(np.int64)
             ibeaconDF["RSSI"]= ibeaconDF["RSSI"].astype(np.float32).fillna(-110)
             ibeaconTime = ibeaconDF.pivot_table(values="RSSI",columns="time",index="UUID").fillna(-110).T
-            xInterp = ibeaconTime.index.values.astype(np.float32)
+            xInterp = ibeaconTime.index.values.astype(np.float64)
             # if len(xInterp)>2:
             interp = interp1d(xInterp,ibeaconTime.values,axis=0,fill_value="extrapolate",kind="nearest")#,kind="nearest")
             ibeaconData_ = interp(IMU_data[:,0])
