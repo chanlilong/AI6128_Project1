@@ -60,9 +60,9 @@ class IndoorLocDataset(Dataset):
         self.wirelessDF = wirelessDF
         self.build2int = {b:i for i,b in enumerate(self.uniqueBuilding)}
         # self.floor2int = {f:i for i,f in enumerate(self.uniqueFloors)}
-        # self.wifi2int = self.makeIDX(self.wirelessDF["BSSID"])
-        # self.beac2int = self.makeIDX(self.wirelessDF["UUID"])
-
+        self.wifi2int = {bID:{x:i for i,x in enumerate(self.wirelessDF.loc[bID].BSSID)} for bID in self.wirelessDF.index.values}
+        self.beac2int = {bID:{x:i for i,x in enumerate(self.wirelessDF.loc[bID].UUID)} for bID in self.wirelessDF.index.values}
+        
     def return_files(self,root:str,split:str,split_size:float):
         allFiles = np.array(glob(f"{root}/train/**/**/*.txt"))
         # print(len(allFiles))
@@ -78,14 +78,7 @@ class IndoorLocDataset(Dataset):
         elif split=="val":
             self.allFiles = allFiles[val_idx]
             
-    @staticmethod    
-    def makeIDX(arr):
-        wifi2int = {}
 
-        for wifiList in arr:
-            for i,wifi in enumerate(wifiList): 
-                wifi2int[wifi] = i
-        return wifi2int
     def __len__(self)->int:
         return len(self.allFiles)
     
@@ -174,17 +167,18 @@ class IndoorLocDataset(Dataset):
             wifiBSSID = wifiTime.columns.values
 
 
-            wifi2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].BSSID)}
-            n_wifi = len(wifi2int)
+            # wifi2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].BSSID)}
+            w2i = self.wifi2int[buildingID]
+            n_wifi = len(w2i)
 
-            wifiIDX = np.array([wifi2int[x] if x in wifi2int.keys() else 0 for x in wifiBSSID ])
+            wifiIDX = np.array([w2i[x] if x in w2i.keys() else 0 for x in wifiBSSID ])
             wifiData = np.ones((IMU_data.shape[0],n_wifi),dtype=np.float32)*-110
             wifiData[:,wifiIDX] = self.nanFilter(wifiData_)
 
             
         else:
-            wifi2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].BSSID)}
-            n_wifi = len(wifi2int)
+            w2i = self.wifi2int[buildingID]
+            n_wifi = len(w2i)
             wifiData = np.ones((IMU_data.shape[0],n_wifi),dtype=np.float32)*-110
             wifiIDX = np.array([0],dtype=np.int64)
 
@@ -202,17 +196,18 @@ class IndoorLocDataset(Dataset):
             ibeaconUUID = ibeaconTime.columns.values
 
 
-            beac2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].UUID)}
-            n_beac = len(beac2int)
-            ibeaconUUID = [x for x in ibeaconUUID if x in beac2int.keys()]
-            validIDX =  [i for i,x in enumerate(ibeaconUUID) if x in beac2int.keys()]
-            beacIDX = np.array([beac2int[x] for x in ibeaconUUID])
+            # beac2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].UUID)}
+            b2i = self.beac2int[buildingID]
+            n_beac = len(b2i)
+            ibeaconUUID = [x for x in ibeaconUUID if x in b2i.keys()]
+            validIDX =  [i for i,x in enumerate(ibeaconUUID) if x in b2i.keys()]
+            beacIDX = np.array([b2i[x] for x in ibeaconUUID])
             ibeaconData = np.ones((IMU_data.shape[0],n_beac),dtype=np.float32)*-110
             ibeaconData[:,beacIDX] = self.nanFilter(ibeaconData_[:,validIDX])
 
         else:
-            beac2int = {x:i for i,x in enumerate(self.wirelessDF.loc[buildingID].UUID)}
-            n_beac = len(beac2int)
+            b2i = self.beac2int[buildingID]
+            n_beac = len(b2i)
             ibeaconData = np.ones((IMU_data.shape[0],n_beac),dtype=np.float32)*-110
             beacIDX = np.array([0],dtype=np.int64)
                 
