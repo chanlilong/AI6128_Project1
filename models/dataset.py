@@ -215,6 +215,7 @@ class IndoorLocDataset(Dataset):
         return {"buildingID":buildingID,\
                 # "acceData":acce_datas,\
                 # "originalXY":posi_datas,\
+                "floorStats":np.array([Cx,Cy,Xmax,Ymax,Xmin,Ymin],dtype=np.float32),\
                 "floor":flooridx,\
                 "imuData":self.nanFilter(self.normIMU(IMU_data[:,1:].astype(np.float32))),\
                 "target":self.nanFilter(posInterp),\
@@ -240,6 +241,7 @@ def collate_fn(batch : List[dict], maxlen :int = 4096*2):
     floorID = torch.zeros((B,),dtype=torch.int64)
     imuData = torch.zeros((B,max_t,12),dtype=torch.float32)
     target = torch.zeros((B,max_t,2),dtype=torch.float32)
+    floorStats = torch.zeros((B,6),dtype=torch.float32)
     wifiIDX = []
     beacIDX = []
     wifiData= []
@@ -249,6 +251,8 @@ def collate_fn(batch : List[dict], maxlen :int = 4096*2):
         
         imu_ = b["imuData"][:max_t]
         target_ = b["target"][:max_t]
+        
+        floorStats[i] = torch.as_tensor(b["floorStats"],dtype=torch.float32)
         
         # buildingID[i] = b["buildingID"]
         buildingID.append(b["buildingID"])
@@ -271,6 +275,7 @@ def collate_fn(batch : List[dict], maxlen :int = 4096*2):
         beacData.append(b_/-110.0)
             
     returnData = {'buildingID':buildingID,\
+                  "floorStats":floorStats,\
                   'floor':floorID,\
                   'timeLen' :torch.minimum(lenTime,max_t),
                   'imuData':imuData,\

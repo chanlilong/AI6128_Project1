@@ -12,16 +12,24 @@ class IndoorLocModel(torch.nn.Module):
     
     def __init__(self,xformerConfig:xFormerDecoderConfig,len_floors:int,wirelessDF:pd.DataFrame)-> None:
         super().__init__()
-        self.rope = RotaryEmbedding(dim_model=xformerConfig.dim_model)
+        # self.rope = RotaryEmbedding(dim_model=xformerConfig.dim_model)
 
-        self.decoder_wifi = xFormerDecoderBlock(xformerConfig)
-        self.decoder_beac = xFormerDecoderBlock(xformerConfig)
+        # self.decoder_wifi = xFormerDecoderBlock(xformerConfig)
+        # self.decoder_beac = xFormerDecoderBlock(xformerConfig)
+        self.decoder = xFormerDecoderBlock(xformerConfig)
+        
+        locProj = lambda x: nn.Sequential(nn.Linear(x,128),nn.LayerNorm(128),nn.ReLU(inplace=True),\
+                                          nn.Linear(128,128),nn.LayerNorm(128),nn.ReLU(inplace=True))
+        self.wirelessLocProj = nn.Sequential(nn.Linear(256,128),nn.LayerNorm(128),nn.ReLU(inplace=True),\
+                                          nn.Linear(128,2))
+        # self.embProj = nn.Sequential(nn.Linear(xformerConfig.dim_model,xformerConfig.dim_model),nn.LayerNorm(xformerConfig.dim_model),nn.ReLU(inplace=True))
         
         self.wifiEmbeddings = torch.nn.ModuleDict([[k,Embedding(len(v),xformerConfig.dim_model)] for k,v in wirelessDF[["BuildingID","BSSID"]].values])
         self.beaconEmbeddings = torch.nn.ModuleDict([[k,Embedding(len(v),xformerConfig.dim_model)] for k,v in wirelessDF[["BuildingID","UUID"]].values])
         self.wifiProj =torch.nn.ModuleDict([[k,Linear(len(v),xformerConfig.dim_model//3)] for k,v in wirelessDF[["BuildingID","BSSID"]].values])
         self.beaconProj =torch.nn.ModuleDict([[k,Linear(len(v),xformerConfig.dim_model//3)] for k,v in wirelessDF[["BuildingID","UUID"]].values])
-
+        self.wifiLocProj =torch.nn.ModuleDict([[k,locProj(len(v))] for k,v in wirelessDF[["BuildingID","BSSID"]].values])
+        self.beaconLocProj =torch.nn.ModuleDict([[k,locProj(len(v))] for k,v in wirelessDF[["BuildingID","UUID"]].values])
         self.locProj = nn.Linear(xformerConfig.dim_model,2)
         
         
@@ -67,6 +75,9 @@ class IndoorLocModel(torch.nn.Module):
         wifiFeat = torch.cat([self.wifiProj[bID](wID)[None,...] for bID,wID in zip(buildingIDs,wifiData)],dim=0)
         beacFeat = torch.cat([self.beaconProj[bID](beacID)[None,...] for bID,beacID in zip(buildingIDs,beacData)],dim=0)
         
+        wifiLoc = torch.cat([self.wifiLocProj[bID](wID)[None,...] for bID,wID in zip(buildingIDs,wifiData)],dim=0)
+        beacLoc = torch.cat([self.beaconLocProj[bID](beacID)[None,...] for bID,beacID in zip(buildingIDs,beacData)],dim=0)
+        
         
         BATCH,SEQ,_ = imuData.shape
                 
@@ -77,21 +88,29 @@ class IndoorLocModel(torch.nn.Module):
         
         len_mask_ = self.getLenMask(len_mask,BATCH,SEQ)
                 
-        x = self.decoder_wifi(target=x,memory=wifiEmb,input_mask=len_mask_)
-        x = self.decoder_beac(target=x,memory=beacEmb,input_mask=len_mask_)
-
-        locPred = self.locPred(x)
+            
+        # x = self.decoder_wifi(target=x,memory=wifiEmb,input_mask=len_mask_)
+        # x = self.decoder_beac(target=x,memory=beacEmb,input_mask=len_mask_)
+        # print(beacEmb.shape,wifiEmb.shape)
+        wirelessEmb = torch.cat([wifiEmb,beacEmb],dim=1)
+        x = self.decoder(target = x,memory = wirelessEmb,input_mask=len_mask_)
+        
+        wirelesssLoc = self.wirelessLocProj(torch.cat([wifiLoc,beacLoc],dim=-1))
+        locPred = self.locPred(x)+ wirelesssLoc
 
         floorPred = self.floorPred(x)
+        
+        if self.training:
+            locPred = self.maskBeforeReturn(locPred ,len_mask)
+            wirelesssLoc = self.maskBeforeReturn(wirelesssLoc ,len_mask)
 
-        locPred = self.maskBeforeReturn(locPred ,len_mask)
-        return locPred,floorPred
+        return locPred,floorPred,wirelesssLoc
     
 my_config ={
-            "reversible": True,  # Optionally make these layers reversible, to save memory
+            "reversible": False,  # Optionally make these layers reversible, to save memory
             "block_type": "decoder",
-            "num_layers": 3,  # Optional, this means that this config will repeat N times
-            "dim_model": 64*3,
+            "num_layers": 6,  # Optional, this means that this config will repeat N times
+            "dim_model": 128*3,
             "residual_norm_style": "post",  # Optional, pre/post
             "position_encoding_config": {
                 "name": "sine",  # whatever position encodinhg makes sense
@@ -107,7 +126,7 @@ my_config ={
             },
             "multi_head_config_cross": {
                 "num_heads": 8,
-                "residual_dropout": 0,
+                "residual_dropout": 0.1,
                 "attention": {
                     "name": "favor",  # whatever attention mechanism
                     "dropout": 0.1,
